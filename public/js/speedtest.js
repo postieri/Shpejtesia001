@@ -1,15 +1,14 @@
 class SpeedTest {
     constructor() {
         this.CHUNK_SIZES = [
+            1 * 1024 * 1024,    // 1MB
             2 * 1024 * 1024,    // 2MB
-            4 * 1024 * 1024,    // 4MB
-            8 * 1024 * 1024     // 8MB
+            3 * 1024 * 1024     // 3MB
         ];
-        this.CONCURRENT_REQUESTS = 1;     // Single request for accurate testing
-        this.TEST_DURATION = 8000;        // 8 seconds per test
-        this.WARMUP_SIZE = 256 * 1024;    // 256KB warmup
+        this.CONCURRENT_REQUESTS = 1;
+        this.TEST_DURATION = 8000;
+        this.WARMUP_SIZE = 256 * 1024;
         
-        // Initialize UI elements
         this.status = document.querySelector('.status');
         this.progress = document.querySelector('.progress');
         this.speedDisplay = document.querySelector('.speed-display');
@@ -17,9 +16,6 @@ class SpeedTest {
         this.downloadResult = document.getElementById('downloadResult');
         this.uploadResult = document.getElementById('uploadResult');
         this.latencyResult = document.getElementById('latencyResult');
-
-        // Initialize test state
-        this.abortController = null;
     }
 
     formatSpeed(speed) {
@@ -60,7 +56,6 @@ class SpeedTest {
             }
         }
         measurements.sort((a, b) => a - b);
-        // Remove highest and lowest
         measurements.shift();
         measurements.pop();
         return measurements.reduce((a, b) => a + b, 0) / measurements.length;
@@ -70,52 +65,57 @@ class SpeedTest {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             const startTime = performance.now();
+            let totalBytes = 0;
+            let speedSamples = [];
+            let lastProgressTime = startTime;
             
             xhr.open('GET', `?action=download&size=${size}`, true);
             xhr.responseType = 'arraybuffer';
             
-            let lastLoadedTime = startTime;
-            let lastLoaded = 0;
-            let progressSpeeds = [];
-
             xhr.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const currentTime = performance.now();
-                    const timeDiff = (currentTime - lastLoadedTime) / 1000; // seconds
-                    const loadedDiff = event.loaded - lastLoaded;
-                    
-                    if (timeDiff > 0) {
-                        const currentSpeed = (loadedDiff / timeDiff) / (1024 * 1024) * 8; // Mbps
-                        progressSpeeds.push(currentSpeed);
-                        this.updateUI(null, 'Testing download speed...', currentSpeed);
+                const currentTime = performance.now();
+                const timeDiff = (currentTime - lastProgressTime) / 1000;
+                const byteDiff = event.loaded - totalBytes;
+                
+                if (timeDiff > 0) {
+                    const speedMbps = (byteDiff * 8) / (timeDiff * 1024 * 1024);
+                    if (speedMbps > 0 && speedMbps < 1000) {
+                        speedSamples.push(speedMbps);
+                        this.updateUI(null, 'Testing download speed...', speedMbps);
                     }
-                    
-                    lastLoadedTime = currentTime;
-                    lastLoaded = event.loaded;
                 }
+                
+                totalBytes = event.loaded;
+                lastProgressTime = currentTime;
             };
             
             xhr.onload = () => {
                 if (xhr.status === 200) {
                     const endTime = performance.now();
-                    const duration = (endTime - startTime) / 1000; // seconds
-                    const loaded = xhr.response.byteLength;
+                    const duration = (endTime - startTime) / 1000;
                     
-                    // Calculate average speed from progress updates
-                    let speed;
-                    if (progressSpeeds.length > 0) {
-                        // Remove outliers (top and bottom 10%)
-                        progressSpeeds.sort((a, b) => a - b);
-                        const cut = Math.floor(progressSpeeds.length * 0.1);
-                        const filteredSpeeds = progressSpeeds.slice(cut, -cut);
-                        speed = filteredSpeeds.length > 0 
-                            ? filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length
-                            : (loaded * 8) / duration / (1024 * 1024); // Fallback calculation
+                    if (speedSamples.length > 0) {
+                        speedSamples.sort((a, b) => a - b);
+                        const cut = Math.floor(speedSamples.length * 0.2);
+                        const validSamples = speedSamples.slice(cut, -cut);
+                        
+                        const avgSpeed = validSamples.length > 0 
+                            ? validSamples.reduce((a, b) => a + b) / validSamples.length
+                            : 0;
+                            
+                        resolve({
+                            success: true,
+                            speed: Math.min(avgSpeed, 1000),
+                            samples: validSamples.length
+                        });
                     } else {
-                        speed = (loaded * 8) / duration / (1024 * 1024);
+                        const speed = Math.min((totalBytes * 8) / (duration * 1024 * 1024), 1000);
+                        resolve({
+                            success: true,
+                            speed: speed,
+                            samples: 0
+                        });
                     }
-                    
-                    resolve({ loaded, duration, speed });
                 } else {
                     reject(new Error(`HTTP ${xhr.status}`));
                 }
@@ -134,55 +134,63 @@ class SpeedTest {
             const xhr = new XMLHttpRequest();
             const startTime = performance.now();
             const blob = new Blob([new ArrayBuffer(size)]);
-            
-            let lastLoadedTime = startTime;
+            let speedSamples = [];
             let lastLoaded = 0;
-            let progressSpeeds = [];
+            let lastTime = startTime;
 
             xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const currentTime = performance.now();
-                    const timeDiff = (currentTime - lastLoadedTime) / 1000;
-                    const loadedDiff = event.loaded - lastLoaded;
-                    
-                    if (timeDiff > 0) {
-                        const currentSpeed = (loadedDiff / timeDiff) / (1024 * 1024) * 8; // Mbps
-                        progressSpeeds.push(currentSpeed);
-                        this.updateUI(null, 'Testing upload speed...', currentSpeed);
+                const currentTime = performance.now();
+                const timeDiff = (currentTime - lastTime) / 1000;
+                const byteDiff = event.loaded - lastLoaded;
+
+                if (timeDiff > 0) {
+                    const speedMbps = (byteDiff * 8) / (timeDiff * 1024 * 1024);
+                    if (speedMbps > 0 && speedMbps < 1000) {
+                        speedSamples.push(speedMbps);
+                        this.updateUI(null, 'Testing upload speed...', speedMbps);
                     }
-                    
-                    lastLoadedTime = currentTime;
-                    lastLoaded = event.loaded;
                 }
+
+                lastLoaded = event.loaded;
+                lastTime = currentTime;
             };
-            
+
             xhr.onload = () => {
                 if (xhr.status === 200) {
                     const endTime = performance.now();
                     const duration = (endTime - startTime) / 1000;
-                    
-                    let speed;
-                    if (progressSpeeds.length > 0) {
-                        progressSpeeds.sort((a, b) => a - b);
-                        const cut = Math.floor(progressSpeeds.length * 0.1);
-                        const filteredSpeeds = progressSpeeds.slice(cut, -cut);
-                        speed = filteredSpeeds.length > 0 
-                            ? filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length
-                            : (size * 8) / duration / (1024 * 1024);
+
+                    if (speedSamples.length > 0) {
+                        speedSamples.sort((a, b) => a - b);
+                        const cut = Math.floor(speedSamples.length * 0.2);
+                        const validSamples = speedSamples.slice(cut, -cut);
+                        
+                        const avgSpeed = validSamples.length > 0 
+                            ? validSamples.reduce((a, b) => a + b) / validSamples.length
+                            : 0;
+
+                        resolve({
+                            success: true,
+                            speed: Math.min(avgSpeed, 1000),
+                            samples: validSamples.length
+                        });
                     } else {
-                        speed = (size * 8) / duration / (1024 * 1024);
+                        const speed = Math.min((size * 8) / (duration * 1024 * 1024), 1000);
+                        resolve({
+                            success: true,
+                            speed: speed,
+                            samples: 0
+                        });
                     }
-                    
-                    resolve({ loaded: size, duration, speed });
                 } else {
                     reject(new Error(`HTTP ${xhr.status}`));
                 }
             };
-            
+
             xhr.onerror = () => reject(new Error('Network error'));
             xhr.onabort = () => reject(new Error('Aborted'));
             xhr.ontimeout = () => reject(new Error('Timeout'));
-            
+
             xhr.open('POST', window.location.href, true);
             xhr.setRequestHeader('Content-Type', 'application/octet-stream');
             xhr.setRequestHeader('Cache-Control', 'no-cache');
@@ -192,70 +200,49 @@ class SpeedTest {
 
     async performTransfer(type, chunkSize) {
         return new Promise((resolve) => {
-            const startTime = performance.now();
             const speeds = [];
+            let testCount = 0;
+            const maxTests = 3;
             let completed = false;
 
-            const checkCompletion = () => {
-                if (completed) return;
-                const endTime = performance.now();
-                const duration = (endTime - startTime) / 1000;
-                
-                if (duration >= this.TEST_DURATION / 1000) {
-                    completed = true;
-                    if (speeds.length > 0) {
-                        speeds.sort((a, b) => a - b);
-                        const cut = Math.floor(speeds.length * 0.1);
-                        const filteredSpeeds = speeds.slice(cut, -cut);
-                        const averageSpeed = filteredSpeeds.length > 0 
-                            ? filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length
-                            : 0;
-                        resolve(averageSpeed);
-                    } else {
-                        resolve(0);
-                    }
-                }
-            };
-
             const runTest = async () => {
-                if (completed) return;
+                if (completed || testCount >= maxTests) return;
+                testCount++;
 
                 try {
                     const result = await (type === 'download' ? 
                         this.downloadChunk(chunkSize) : 
                         this.uploadChunk(chunkSize));
-                    
-                    if (!completed) {
+
+                    if (!completed && result.success) {
                         speeds.push(result.speed);
-                        runTest(); // Start next test immediately
                     }
                 } catch (error) {
                     console.error(`${type} error:`, error);
-                    if (!completed) {
-                        runTest(); // Retry on error
-                    }
                 }
 
-                checkCompletion();
+                if (!completed && testCount < maxTests) {
+                    setTimeout(runTest, 1000);
+                } else {
+                    finishTest();
+                }
             };
 
-            // Start the test
-            runTest();
-
-            // Ensure test completion
-            setTimeout(() => {
-                completed = true;
+            const finishTest = () => {
                 if (speeds.length > 0) {
                     speeds.sort((a, b) => a - b);
-                    const cut = Math.floor(speeds.length * 0.1);
-                    const filteredSpeeds = speeds.slice(cut, -cut);
-                    const averageSpeed = filteredSpeeds.length > 0 
-                        ? filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length
-                        : 0;
-                    resolve(averageSpeed);
+                    const medianSpeed = speeds[Math.floor(speeds.length / 2)];
+                    resolve(medianSpeed);
                 } else {
                     resolve(0);
                 }
+            };
+
+            runTest();
+
+            setTimeout(() => {
+                completed = true;
+                finishTest();
             }, this.TEST_DURATION);
         });
     }
@@ -311,7 +298,6 @@ class SpeedTest {
     }
 }
 
-// Initialize SpeedTest and expose test methods
 const speedTest = new SpeedTest();
 window.startDownloadTest = () => speedTest.startTest('download');
 window.startUploadTest = () => speedTest.startTest('upload');

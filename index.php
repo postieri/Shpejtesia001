@@ -21,17 +21,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     // Handle download test
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'download') {
         header('Content-Type: application/octet-stream');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
         
-        $size = isset($_GET['size']) ? intval($_GET['size']) : 1048576; // default 1MB
-        $size = min($size, 25 * 1024 * 1024); // max 25MB per chunk
+        // Limit chunk size and apply rate limiting
+        $requestedSize = isset($_GET['size']) ? intval($_GET['size']) : 1048576; // default 1MB
+        $maxChunkSize = 5 * 1024 * 1024; // 5MB maximum
+        $size = min($requestedSize, $maxChunkSize);
         
-        // Generate random data efficiently
-        $chunkSize = 8192; // 8KB chunks
-        while ($size > 0) {
-            $bytes = min($size, $chunkSize);
-            echo random_bytes($bytes);
-            $size -= $bytes;
-            if (connection_aborted()) break;
+        // Generate and send data in smaller chunks with controlled rate
+        $chunkSize = 65536; // 64KB chunks
+        $totalSent = 0;
+        $rateLimit = 32768; // Bytes per iteration (32KB)
+        
+        while ($totalSent < $size) {
+            if (connection_aborted()) {
+                break;
+            }
+
+            $sendSize = min($chunkSize, $size - $totalSent);
+            $data = random_bytes($sendSize);
+            
+            // Send chunk
+            echo $data;
+            $totalSent += $sendSize;
+            
+            // Flush output
+            flush();
+            ob_flush();
+            
+            // Rate limiting delay
+            usleep(1000); // 1ms delay between chunks
         }
         exit;
     }
@@ -40,18 +59,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $input = fopen('php://input', 'rb');
         $temp = fopen('php://temp', 'w+b');
-        $size = stream_copy_to_stream($input, $temp);
+        $size = 0;
+        
+        // Read in chunks to prevent memory issues
+        while (!feof($input)) {
+            $chunk = fread($input, 8192); // 8KB chunks
+            if ($chunk === false) break;
+            $written = fwrite($temp, $chunk);
+            if ($written === false) break;
+            $size += $written;
+        }
+        
         fclose($input);
         fclose($temp);
-        echo json_encode(['success' => true, 'size' => $size]);
+        
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'size' => $size
+        ]);
         exit;
     }
 
     // Handle ping request
     if (isset($_GET['action']) && $_GET['action'] === 'ping') {
-        echo json_encode(['time' => microtime(true)]);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'timestamp' => microtime(true),
+            'status' => 'ok'
+        ]);
         exit;
     }
+
+    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -66,10 +106,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     
     <!-- Security headers -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
     
     <!-- Styles -->
     <link rel="stylesheet" href="public/css/style.css">
+
+    <!-- Preload key resources -->
+    <link rel="preload" href="public/js/speedtest.js" as="script">
 </head>
 <body>
     <div class="container">
