@@ -1,0 +1,33 @@
+{
+  "name": "speedtest",
+  "type": "docker",
+  "buildCommand": "docker build -t speedtest .",
+  "startCommand": "apache2-foreground",
+  "port": 80,
+  "healthcheck": {
+    "path": "/healthcheck.php",
+    "port": 80,
+    "interval": "30s",
+    "timeout": "10s",
+    "retries": 3,
+    "startPeriod": "40s"
+  },
+  "environment": {
+    "PHP_MEMORY_LIMIT": "256M",
+    "MAX_UPLOAD_SIZE": "100M",
+    "PHP_MAX_EXECUTION_TIME": "30",
+    "APACHE_TIMEOUT": "300",
+    "SECURITY_SALT": "${RANDOM_STRING}",
+    "APP_ENV": "production"
+  },
+  "volumes": [
+    {
+      "source": "/tmp/speed_test",
+      "target": "/tmp/speed_test"
+    }
+  ],
+  "securityOpts": [
+    "no-new-privileges:true"
+  ],
+  "readOnly": false
+}

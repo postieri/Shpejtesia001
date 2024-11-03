@@ -1,0 +1,54 @@
+# Enable CORS with restrictions
+Header set Access-Control-Allow-Origin "https://yourdomain.com"
+Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+Header set Access-Control-Max-Age "3600"
+
+# Handle OPTIONS preflight requests
+RewriteEngine On
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+
+# PHP handler
+AddHandler application/x-httpd-php .php
+
+# Security headers
+Header set X-Content-Type-Options "nosniff"
+Header set X-Frame-Options "SAMEORIGIN"
+Header set X-XSS-Protection "1; mode=block"
+Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'"
+Header set Referrer-Policy "strict-origin-when-cross-origin"
+Header set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+# Prevent access to sensitive files
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to sensitive directories
+RedirectMatch 404 /\.git
+RedirectMatch 404 /\.env
+RedirectMatch 404 /composer\.(lock|json)
+RedirectMatch 404 /\.htaccess
+
+# Enable rewrite engine
+RewriteEngine On
+
+# Force HTTPS
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Block bad bots
+RewriteCond %{HTTP_USER_AGENT} ^$ [OR]
+RewriteCond %{HTTP_USER_AGENT} ^(java|curl|wget).* [NC,OR]
+RewriteCond %{HTTP_USER_AGENT} ^.*(libwww-perl|wget|python|nikto|curl|scan|java|winhttp|clshttp|loader).* [NC,OR]
+RewriteCond %{HTTP_USER_AGENT} ^.*(winhttp|HTTrack|clshttp|archiver|loader|email|harvest|extract|grab|miner).* [NC]
+RewriteRule ^ - [F,L]
+
+# Rate limiting
+<IfModule mod_ratelimit.c>
+    SetOutputFilter RATE_LIMIT
+    SetEnv rate-limit 400
+</IfModule>

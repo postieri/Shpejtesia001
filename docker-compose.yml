@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  speedtest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      - PHP_MEMORY_LIMIT=256M
+      - MAX_UPLOAD_SIZE=100M
+    volumes:
+      - /tmp/speed_test:/tmp/speed_test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
