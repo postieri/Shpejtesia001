@@ -2,7 +2,7 @@
   "name": "speedtest",
   "type": "docker",
   "buildCommand": "docker build -t speedtest .",
-  "startCommand": "apache2-foreground",
+  "startCommand": "/bin/bash .coolify/deploy.sh",
   "port": 80,
   "healthcheck": {
     "path": "/healthcheck.php",
@@ -15,19 +15,55 @@
   "environment": {
     "PHP_MEMORY_LIMIT": "256M",
     "MAX_UPLOAD_SIZE": "100M",
-    "PHP_MAX_EXECUTION_TIME": "30",
+    "APP_ENV": "production",
     "APACHE_TIMEOUT": "300",
-    "SECURITY_SALT": "${RANDOM_STRING}",
-    "APP_ENV": "production"
+    "SECURITY_SALT": "${RANDOM_STRING}"
   },
   "volumes": [
     {
-      "source": "/tmp/speed_test",
-      "target": "/tmp/speed_test"
+      "source": "speedtest_temp",
+      "target": "/tmp/speed_test",
+      "type": "volume"
+    },
+    {
+      "source": "speedtest_logs",
+      "target": "/var/log/speedtest",
+      "type": "volume"
+    },
+    {
+      "source": "speedtest_backups",
+      "target": "/var/backups/speedtest",
+      "type": "volume"
     }
   ],
-  "securityOpts": [
-    "no-new-privileges:true"
-  ],
-  "readOnly": false
+  "resources": {
+    "limits": {
+      "cpu": 1,
+      "memory": "512M"
+    },
+    "reservations": {
+      "cpu": 0.25,
+      "memory": "128M"
+    }
+  },
+  "security": {
+    "readOnlyRootFilesystem": false,
+    "noNewPrivileges": true,
+    "capDrop": ["ALL"],
+    "capAdd": ["CHOWN", "SETGID", "SETUID"]
+  },
+  "monitoring": {
+    "enabled": true,
+    "path": "/healthcheck.php",
+    "interval": "1m"
+  },
+  "backup": {
+    "enabled": true,
+    "interval": "1d",
+    "retention": "7d",
+    "paths": [
+      "/tmp/speed_test",
+      "/var/log/speedtest"
+    ]
+  }
 }

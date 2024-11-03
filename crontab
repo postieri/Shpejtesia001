@@ -1,0 +1,21 @@
+# Speed Test Application Cron Jobs
+
+# Environment setup
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# Cleanup temporary files every hour
+0 * * * * www-data /usr/local/bin/php /var/www/html/scripts/cleanup.php >> /var/log/speedtest/cleanup.log 2>&1
+
+# Run system monitoring every 5 minutes
+*/5 * * * * www-data /usr/local/bin/php /var/www/html/scripts/monitor.php >> /var/log/speedtest/monitor.log 2>&1
+
+# Rotate logs daily
+0 0 * * * www-data /usr/bin/find /var/log/speedtest -type f -name "*.log" -size +10M -exec mv {} {}.old \;
+
+# Cleanup old rotated logs weekly
+0 0 * * 0 www-data /usr/bin/find /var/log/speedtest -type f -name "*.log.old" -mtime +7 -delete
+
+# Check disk space usage daily
+0 2 * * * www-data /usr/local/bin/php /var/www/html/scripts/monitor.php --check=disk >> /var/log/speedtest/disk-check.log 2>&1

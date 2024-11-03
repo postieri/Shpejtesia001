@@ -1,0 +1,8 @@
+# Ignore temp directory content but keep the directory
+/tmp/speed_test/*
+!/tmp/speed_test/.gitkeep
+
+# Other ignores
+.env
+.DS_Store
+node_modules/
