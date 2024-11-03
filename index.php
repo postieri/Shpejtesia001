@@ -80,26 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
             
             if ($contentLength > 0) {
                 $input = fopen('php://input', 'rb');
-                $temp = fopen('php://temp', 'w+b');
                 $size = 0;
-                $chunkSize = 65536; // 64KB chunks for processing uploads
+                $chunkSize = 65536; // 64KB chunks
                 $startTime = microtime(true);
                 
                 while (!feof($input)) {
                     $chunk = fread($input, $chunkSize);
-                    if ($chunk === false) {
-                        throw new Exception('Failed to read upload data');
-                    }
-                    
-                    $written = fwrite($temp, $chunk);
-                    if ($written === false) {
-                        throw new Exception('Failed to process upload data');
-                    }
-                    
-                    $size += $written;
+                    if ($chunk === false) break;
+                    $size += strlen($chunk);
                     
                     // Flush more frequently for better measurements
-                    if ($size % (512 * 1024) === 0) { // Flush every 512KB
+                    if ($size % (256 * 1024) === 0) { // Flush every 256KB
                         flush();
                     }
                 }
@@ -108,7 +99,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 $duration = $endTime - $startTime;
                 
                 fclose($input);
-                fclose($temp);
                 
                 header('Content-Type: application/json');
                 echo json_encode([

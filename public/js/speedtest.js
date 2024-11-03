@@ -16,16 +16,16 @@ class SpeedTest {
     }
 
     getAdaptiveChunkSize(measuredSpeedMbps) {
-        if (measuredSpeedMbps < 10) {          // Less than 10 Mbps
+        if (measuredSpeedMbps < 5) {           // Less than 5 Mbps
+            return 256 * 1024;                  // 256KB chunks
+        } else if (measuredSpeedMbps < 20) {    // Less than 20 Mbps
             return 512 * 1024;                  // 512KB chunks
-        } else if (measuredSpeedMbps < 50) {   // Less than 50 Mbps
+        } else if (measuredSpeedMbps < 50) {    // Less than 50 Mbps
             return 1 * 1024 * 1024;            // 1MB chunks
-        } else if (measuredSpeedMbps < 100) {  // Less than 100 Mbps
+        } else if (measuredSpeedMbps < 100) {   // Less than 100 Mbps
             return 2 * 1024 * 1024;            // 2MB chunks
-        } else if (measuredSpeedMbps < 200) {  // Less than 200 Mbps
+        } else {                               // 100+ Mbps
             return 4 * 1024 * 1024;            // 4MB chunks
-        } else {                               // 200+ Mbps
-            return 8 * 1024 * 1024;            // 8MB chunks
         }
     }
 
@@ -84,8 +84,8 @@ class SpeedTest {
         const megabits = bits / 1000000;
         // Convert duration to seconds and ensure it's not too small
         const seconds = Math.max(duration / 1000, 0.1);
-        // Calculate Mbps and adjust decimal point
-        return (megabits / seconds) / 10;
+        // Calculate Mbps
+        return megabits / seconds;
     }
 
     downloadChunk(size) {
@@ -104,7 +104,7 @@ class SpeedTest {
                 const timeDiff = (currentTime - lastProgressTime) / 1000;
                 const byteDiff = event.loaded - totalBytes;
                 
-                if (timeDiff > 0.1) { // Sample every 100ms
+                if (timeDiff > 0.1 && byteDiff > 0) { // Sample every 100ms
                     const speed = this.calculateSpeed(byteDiff, timeDiff * 1000);
                     if (speed > 0) {
                         speedSamples.push(speed);
@@ -171,7 +171,9 @@ class SpeedTest {
             const startTime = performance.now();
             // Create random data for upload
             const data = new Uint8Array(size);
-            crypto.getRandomValues(data);
+            for (let i = 0; i < size; i++) {
+                data[i] = Math.random() * 256;
+            }
             const blob = new Blob([data]);
             
             let speedSamples = [];
@@ -183,7 +185,7 @@ class SpeedTest {
                 const timeDiff = (currentTime - lastTime) / 1000;
                 const byteDiff = event.loaded - lastLoaded;
 
-                if (timeDiff > 0.1) { // Sample every 100ms
+                if (timeDiff > 0.1 && byteDiff > 0) { // Sample every 100ms
                     const speed = this.calculateSpeed(byteDiff, timeDiff * 1000);
                     if (speed > 0) {
                         speedSamples.push(speed);
