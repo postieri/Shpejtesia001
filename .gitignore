@@ -1,8 +1,68 @@
-# Ignore temp directory content but keep the directory
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+/tmp/*
+!/tmp/.gitkeep
+/temp/*
+!/temp/.gitkeep
 /tmp/speed_test/*
 !/tmp/speed_test/.gitkeep
 
-# Other ignores
-.env
+# Logs
+*.log
+*.log.*
+/logs/*
+!/logs/.gitkeep
+/var/log/*
+!/var/log/.gitkeep
+
+# OS generated files
 .DS_Store
-node_modules/
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.backup
+*.old
+/var/backups/*
+!/var/backups/.gitkeep
+
+# Test files
+/test/
+/tests/
+/testing/
+
+# Build files
+/build/
+/dist/
+
+# Dependencies
+/vendor/
+/node_modules/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Security
+*.pem
+*.key
+*.crt
+*.csr
+*.cer

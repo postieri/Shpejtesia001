@@ -1,21 +1,42 @@
 # Speed Test Application Cron Jobs
-
-# Environment setup
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=""
 
-# Cleanup temporary files every hour
-0 * * * * www-data /usr/local/bin/php /var/www/html/scripts/cleanup.php >> /var/log/speedtest/cleanup.log 2>&1
+# Environment variables
+APP_DIR=/var/www/html
+LOG_DIR=/var/log/speedtest
+TEMP_DIR=/tmp/speed_test
 
-# Run system monitoring every 5 minutes
-*/5 * * * * www-data /usr/local/bin/php /var/www/html/scripts/monitor.php >> /var/log/speedtest/monitor.log 2>&1
+# Cleanup temporary files (every hour)
+0 * * * * www-data /usr/local/bin/php $APP_DIR/scripts/cleanup.php >> $LOG_DIR/cleanup.log 2>&1
 
-# Rotate logs daily
-0 0 * * * www-data /usr/bin/find /var/log/speedtest -type f -name "*.log" -size +10M -exec mv {} {}.old \;
+# Run system monitoring (every 5 minutes)
+*/5 * * * * www-data /usr/local/bin/php $APP_DIR/scripts/monitor.php >> $LOG_DIR/monitor.log 2>&1
 
-# Cleanup old rotated logs weekly
-0 0 * * 0 www-data /usr/bin/find /var/log/speedtest -type f -name "*.log.old" -mtime +7 -delete
+# Security checks (every 6 hours)
+0 */6 * * * www-data /bin/bash $APP_DIR/.coolify/security-check.sh >> $LOG_DIR/security.log 2>&1
 
-# Check disk space usage daily
-0 2 * * * www-data /usr/local/bin/php /var/www/html/scripts/monitor.php --check=disk >> /var/log/speedtest/disk-check.log 2>&1
+# Rotate logs daily (at midnight)
+0 0 * * * www-data find $LOG_DIR -type f -name "*.log" -size +10M -exec mv {} {}.old \;
+
+# Cleanup old rotated logs (weekly, Sunday at 1 AM)
+0 1 * * 0 www-data find $LOG_DIR -type f -name "*.log.old" -mtime +7 -delete
+
+# Backup temp files (daily at 2 AM)
+0 2 * * * www-data tar -czf $LOG_DIR/backups/temp-$(date +\%Y\%m\%d).tar.gz -C $TEMP_DIR .
+
+# Remove old backups (keep last 7 days, runs at 3 AM)
+0 3 * * * www-data find $LOG_DIR/backups -type f -name "temp-*.tar.gz" -mtime +7 -delete
+
+# Check disk space usage (every 30 minutes)
+*/30 * * * * www-data /usr/local/bin/php $APP_DIR/scripts/monitor.php --check=disk >> $LOG_DIR/disk-check.log 2>&1
+
+# Health check (every minute)
+* * * * * www-data curl -s http://localhost/healthcheck.php >> $LOG_DIR/health.log 2>&1
+
+# Cleanup zombie processes (every 15 minutes)
+*/15 * * * * www-data pkill -f "defunct"
+
+# Update ModSecurity rules (weekly, Sunday at 4 AM)
+0 4 * * 0 root /usr/local/bin/update-modsecurity-rules >> $LOG_DIR/modsecurity-update.log 2>&1

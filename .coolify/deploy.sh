@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Exit on error
 set -e
 
 # Configuration
@@ -28,7 +27,7 @@ warn() {
     echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] WARNING:${NC} $1"
 }
 
-# Create necessary directories
+# Setup directories
 setup_directories() {
     log "Setting up directories..."
     
@@ -37,47 +36,51 @@ setup_directories() {
             mkdir -p "$DIR"
             log "Created directory: $DIR"
         fi
+        chown -R www-data:www-data "$DIR"
+        chmod -R 750 "$DIR"
     done
-
-    # Set proper permissions
-    chown -R www-data:www-data "$TEMP_DIR" "$LOG_DIR" "$BACKUP_DIR"
-    chmod -R 750 "$TEMP_DIR" "$LOG_DIR" "$BACKUP_DIR"
 }
 
 # Security checks
 security_checks() {
     log "Performing security checks..."
 
-    # Check PHP configuration
-    if [ "$(php -r 'echo ini_get("expose_php");')" == "1" ]; then
-        warn "PHP version exposure is enabled"
-    fi
+    # Check Apache modules
+    required_modules=("headers" "rewrite" "security2" "remoteip")
+    for module in "${required_modules[@]}"; do
+        if ! a2query -m "$module" > /dev/null 2>&1; then
+            warn "Enabling Apache module: $module"
+            a2enmod "$module"
+        fi
+    done
 
     # Check file permissions
     find "$APP_DIR" -type f -exec chmod 644 {} \;
     find "$APP_DIR" -type d -exec chmod 755 {} \;
     chmod 750 "$APP_DIR/scripts"
 
-    # Check sensitive files
+    # Secure sensitive files
     if [ -f "$APP_DIR/.env" ]; then
         chmod 600 "$APP_DIR/.env"
     fi
+}
 
-    # Verify Apache modules
-    required_modules=("headers" "rewrite" "security2" "remoteip")
-    for module in "${required_modules[@]}"; do
-        if ! a2query -m "$module" > /dev/null 2>&1; then
-            error "Required Apache module '$module' is not enabled"
-            a2enmod "$module"
-        fi
-    done
+# Configure Apache
+configure_apache() {
+    log "Configuring Apache..."
+    
+    # Enable modules
+    a2enmod headers rewrite security2 remoteip
+
+    # Set permissions for logs
+    chown -R root:adm /var/log/apache2
+    chmod -R 640 /var/log/apache2
 }
 
 # Setup cron jobs
 setup_cron() {
     log "Setting up cron jobs..."
     
-    # Install crontab
     if [ -f "/etc/cron.d/speedtest-cron" ]; then
         crontab /etc/cron.d/speedtest-cron
         log "Installed crontab"
@@ -85,9 +88,7 @@ setup_cron() {
         error "Crontab file not found"
     fi
 
-    # Start cron service
     service cron start
-    log "Started cron service"
 }
 
 # Backup existing data
@@ -96,7 +97,6 @@ backup_data() {
     
     BACKUP_FILE="$BACKUP_DIR/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
     
-    # Create backup of important directories
     tar -czf "$BACKUP_FILE" \
         -C "$TEMP_DIR" . \
         -C "$LOG_DIR" . \
@@ -105,7 +105,7 @@ backup_data() {
     log "Backup created: $BACKUP_FILE"
 }
 
-# Cleanup old backups and logs
+# Cleanup old files
 cleanup_old_files() {
     log "Cleaning up old files..."
     
@@ -121,16 +121,16 @@ cleanup_old_files() {
     done
 }
 
-# Configure Apache
-configure_apache() {
-    log "Configuring Apache..."
+# Initialize ModSecurity
+init_modsecurity() {
+    log "Initializing ModSecurity..."
     
-    # Enable necessary modules
-    a2enmod headers rewrite security2 remoteip
-
-    # Set proper permissions for Apache logs
-    chown -R root:adm /var/log/apache2
-    chmod -R 640 /var/log/apache2
+    if [ -f "/etc/modsecurity/modsecurity.conf" ]; then
+        sed -i 's/SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf
+        log "ModSecurity enabled"
+    else
+        warn "ModSecurity configuration not found"
+    fi
 }
 
 # Main deployment process
@@ -140,10 +140,11 @@ main() {
     # Run all setup functions
     setup_directories
     security_checks
+    configure_apache
+    setup_cron
     backup_data
     cleanup_old_files
-    setup_cron
-    configure_apache
+    init_modsecurity
 
     # Start Apache
     log "Starting Apache..."
@@ -158,7 +159,7 @@ handle_error() {
 
 cleanup_and_exit() {
     warn "Performing emergency cleanup..."
-    # Add any necessary cleanup steps here
+    # Add cleanup steps here if needed
     exit 1
 }
 

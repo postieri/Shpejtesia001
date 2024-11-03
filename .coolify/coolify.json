@@ -1,7 +1,8 @@
 {
-  "name": "speedtest",
+  "name": "speedtestapp",
+  "version": "1.0.0",
   "type": "docker",
-  "buildCommand": "docker build -t speedtest .",
+  "buildCommand": "docker build -t speedtestapp .",
   "startCommand": "/bin/bash .coolify/deploy.sh",
   "port": 80,
   "healthcheck": {
@@ -16,8 +17,7 @@
     "PHP_MEMORY_LIMIT": "256M",
     "MAX_UPLOAD_SIZE": "100M",
     "APP_ENV": "production",
-    "APACHE_TIMEOUT": "300",
-    "SECURITY_SALT": "${RANDOM_STRING}"
+    "APACHE_TIMEOUT": "300"
   },
   "volumes": [
     {
@@ -28,11 +28,6 @@
     {
       "source": "speedtest_logs",
       "target": "/var/log/speedtest",
-      "type": "volume"
-    },
-    {
-      "source": "speedtest_backups",
-      "target": "/var/backups/speedtest",
       "type": "volume"
     }
   ],

@@ -1,4 +1,78 @@
+# Git
 .git
 .gitignore
-README.md
+.gitattributes
+
+# Docker
+.docker
+Dockerfile
 docker-compose.yml
+docker-compose.*.yml
+
+# Documentation
+README.md
+CHANGELOG.md
+LICENSE
+*.md
+
+# Development
+.env
+.env.*
+phpunit.xml
+*.sql
+*.log
+*.log.*
+
+# IDE
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+/test
+/tests
+phpunit.xml
+.phpunit.result.cache
+
+# Temporary files
+/tmp/*
+/temp/*
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Logs
+/logs/*
+/var/log/*
+*.log
+
+# Backups
+/var/backups/*
+*.backup
+*.old
+
+# Build/Dependencies
+/vendor
+/node_modules
+/build
+/dist
+
+# Security
+*.pem
+*.key
+*.crt
+*.csr
+*.cer
+
+# Keep specific files
+!.env.example
+!tmp/.gitkeep
+!logs/.gitkeep
+!var/log/.gitkeep
+!var/backups/.gitkeep

@@ -6,7 +6,7 @@ LOG_DIR="/tmp/speed_test/logs"
 CLEANUP_LOG="${LOG_DIR}/cleanup.log"
 MONITOR_LOG="${LOG_DIR}/monitor.log"
 
-# Create log directory
+# Create log directory if it doesn't exist
 mkdir -p "${LOG_DIR}"
 
 # Function to log messages
@@ -16,7 +16,7 @@ log_message() {
 
 # Run cleanup
 log_message "Starting cleanup" "${CLEANUP_LOG}"
-php "${SCRIPT_DIR}/cleanup.php" >> "${CLEANUP_LOG}" 2>&1
+/usr/local/bin/php "${SCRIPT_DIR}/cleanup.php" >> "${CLEANUP_LOG}" 2>&1
 cleanup_status=$?
 
 if [ $cleanup_status -eq 0 ]; then
@@ -27,7 +27,7 @@ fi
 
 # Run monitoring
 log_message "Starting monitoring" "${MONITOR_LOG}"
-php "${SCRIPT_DIR}/monitor.php" >> "${MONITOR_LOG}" 2>&1
+/usr/local/bin/php "${SCRIPT_DIR}/monitor.php" >> "${MONITOR_LOG}" 2>&1
 monitor_status=$?
 
 if [ $monitor_status -eq 0 ]; then
@@ -44,3 +44,8 @@ for log_file in "${CLEANUP_LOG}" "${MONITOR_LOG}"; do
         log_message "Log rotated" "${log_file}"
     fi
 done
+
+# Cleanup old rotated logs (>7 days)
+find "${LOG_DIR}" -name "*.old" -type f -mtime +7 -delete
+
+exit 0

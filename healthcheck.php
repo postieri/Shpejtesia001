@@ -1,83 +1,98 @@
 <?php
-header('Content-Type: application/json');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('X-XSS-Protection: 1; mode=block');
+// Environment configuration
+ini_set('memory_limit', getenv('PHP_MEMORY_LIMIT') ?: '256M');
+ini_set('upload_max_filesize', getenv('MAX_UPLOAD_SIZE') ?: '100M');
+ini_set('post_max_size', getenv('MAX_UPLOAD_SIZE') ?: '100M');
+ini_set('max_execution_time', '300');
 
-function checkDiskSpace($path) {
-    $free = disk_free_space($path);
-    $total = disk_total_space($path);
-    return [
-        'free' => $free,
-        'total' => $total,
-        'used' => $total - $free,
-        'percent_free' => ($free / $total) * 100
-    ];
+// Handle API requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
+    header('Access-Control-Allow-Headers: *');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Cache-Control: post-check=0, pre-check=0', false);
+    header('Pragma: no-cache');
+
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        exit(0);
+    }
+
+    // Directory for temporary files
+    $tempDir = sys_get_temp_dir() . '/speed_test/';
+
+    // Create directory if it doesn't exist
+    if (!file_exists($tempDir)) {
+        mkdir($tempDir, 0750, true);
+    }
+
+    // Handle file upload
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $tempfile = $tempDir . uniqid('speed_test_') . '.tmp';
+        $success = file_put_contents($tempfile, file_get_contents('php://input'));
+        echo json_encode(['success' => $success !== false]);
+        @unlink($tempfile); // Clean up immediately after upload
+        exit;
+    }
+
+    // Handle ping request
+    if (isset($_GET['action']) && $_GET['action'] === 'ping') {
+        echo json_encode([
+            'time' => microtime(true),
+            'server_time' => time(),
+            'memory_usage' => memory_get_usage(true)
+        ]);
+        exit;
+    }
+
+    // Cleanup old files (older than 1 hour)
+    $files = glob($tempDir . '*');
+    foreach ($files as $file) {
+        if (filemtime($file) < time() - 3600) {
+            @unlink($file);
+        }
+    }
+    exit;
 }
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Internet Speed Test</title>
+    <meta name="description" content="Test your internet connection speed with our fast and accurate speed test tool">
+    <meta name="robots" content="noindex, nofollow">
+    
+    <!-- Security headers -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="public/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Internet Speed Test</h1>
+        <div class="status">Ready to test</div>
+        <div class="speed-display">0<span class="unit">Mbps</span></div>
+        <div class="progress-bar">
+            <div class="progress"></div>
+        </div>
+        <div class="test-buttons">
+            <button onclick="startDownloadTest()">Test Download</button>
+            <button onclick="startUploadTest()">Test Upload</button>
+        </div>
+        <div class="results">
+            <div>Download: <span id="downloadResult">Not tested</span></div>
+            <div>Upload: <span id="uploadResult">Not tested</span></div>
+            <div>Latency: <span id="latencyResult">Not tested</span></div>
+        </div>
+    </div>
 
-function checkPermissions($path) {
-    return [
-        'exists' => file_exists($path),
-        'writable' => is_writable($path),
-        'owner' => posix_getpwuid(fileowner($path))['name'],
-        'group' => posix_getgrgid(filegroup($path))['name'],
-        'permissions' => substr(sprintf('%o', fileperms($path)), -4)
-    ];
-}
-
-function checkLoadAverage() {
-    $load = sys_getloadavg();
-    return [
-        '1min' => $load[0],
-        '5min' => $load[1],
-        '15min' => $load[2]
-    ];
-}
-
-$tempDir = sys_get_temp_dir() . '/speed_test/';
-
-$health = [
-    'status' => 'healthy',
-    'timestamp' => time(),
-    'memory' => [
-        'limit' => ini_get('memory_limit'),
-        'usage' => memory_get_usage(true),
-        'peak' => memory_get_peak_usage(true)
-    ],
-    'disk' => checkDiskSpace($tempDir),
-    'temp_directory' => checkPermissions($tempDir),
-    'system' => [
-        'load' => checkLoadAverage(),
-        'php_version' => PHP_VERSION,
-        'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown'
-    ],
-    'limits' => [
-        'max_execution_time' => ini_get('max_execution_time'),
-        'upload_max_filesize' => ini_get('upload_max_filesize'),
-        'post_max_size' => ini_get('post_max_size')
-    ]
-];
-
-// Check if disk space is low
-if ($health['disk']['percent_free'] < 10) {
-    $health['status'] = 'warning';
-    $health['warnings'][] = 'Low disk space';
-}
-
-// Check if load is high
-if ($health['system']['load']['1min'] > 5) {
-    $health['status'] = 'warning';
-    $health['warnings'][] = 'High system load';
-}
-
-// Check temp directory
-if (!$health['temp_directory']['writable']) {
-    $health['status'] = 'critical';
-    $health['errors'][] = 'Temp directory not writable';
-}
-
-// Set HTTP status code based on health status
-http_response_code($health['status'] === 'healthy' ? 200 : 
-                 ($health['status'] === 'warning' ? 429 : 503));
-
-echo json_encode($health, JSON_PRETTY_PRINT);
+    <!-- Scripts -->
+    <script src="public/js/speedtest.js"></script>
+</body>
+</html>

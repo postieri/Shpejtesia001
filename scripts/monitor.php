@@ -1,143 +1,176 @@
 <?php
-header('Content-Type: application/json');
-
 class SystemMonitor {
     private $tempDir;
+    private $logFile;
+    private $alertFile;
+    private $metricsFile;
     private $thresholds;
-    private $alerts = [];
-    private $stats = [];
 
-    public function __construct($tempDir) {
-        $this->tempDir = $tempDir;
+    public function __construct() {
+        $this->tempDir = sys_get_temp_dir() . '/speed_test/';
+        $this->logFile = $this->tempDir . 'monitor.log';
+        $this->alertFile = $this->tempDir . 'alerts.log';
+        $this->metricsFile = $this->tempDir . 'metrics.json';
         $this->thresholds = [
-            'disk_usage' => 90, // 90% threshold
-            'file_count' => 1000, // max files
-            'load_average' => 5, // max load
-            'memory_usage' => 90 // 90% threshold
+            'disk_usage' => 90,    // 90%
+            'memory_usage' => 90,  // 90%
+            'load_average' => 5,   // 5.0
+            'temp_files' => 1000   // max files
         ];
     }
 
     public function monitor() {
         try {
-            $this->checkDiskUsage();
-            $this->checkFileCount();
-            $this->checkLoadAverage();
-            $this->checkMemoryUsage();
-            $this->checkPermissions();
-            $this->logStatus();
+            $metrics = $this->collectMetrics();
+            $this->checkThresholds($metrics);
+            $this->writeMetrics($metrics);
+            $this->rotateFiles();
 
             return [
-                'status' => empty($this->alerts) ? 'healthy' : 'warning',
+                'status' => 'success',
                 'timestamp' => time(),
-                'stats' => $this->stats,
-                'alerts' => $this->alerts
+                'metrics' => $metrics
             ];
         } catch (Exception $e) {
+            $this->logError($e->getMessage());
             return [
                 'status' => 'error',
-                'message' => $e->getMessage(),
-                'timestamp' => time()
+                'message' => $e->getMessage()
             ];
         }
     }
 
-    private function checkDiskUsage() {
+    private function collectMetrics() {
+        return [
+            'system' => $this->getSystemMetrics(),
+            'php' => $this->getPhpMetrics(),
+            'disk' => $this->getDiskMetrics(),
+            'temp_directory' => $this->getTempDirMetrics()
+        ];
+    }
+
+    private function getSystemMetrics() {
+        $load = sys_getloadavg();
+        return [
+            'load' => [
+                '1m' => $load[0],
+                '5m' => $load[1],
+                '15m' => $load[2]
+            ],
+            'uptime' => $this->getUptime(),
+            'memory' => $this->getMemoryInfo()
+        ];
+    }
+
+    private function getPhpMetrics() {
+        return [
+            'version' => PHP_VERSION,
+            'memory_limit' => ini_get('memory_limit'),
+            'memory_usage' => memory_get_usage(true),
+            'peak_memory_usage' => memory_get_peak_usage(true)
+        ];
+    }
+
+    private function getDiskMetrics() {
         $free = disk_free_space($this->tempDir);
         $total = disk_total_space($this->tempDir);
         $used = $total - $free;
-        $usagePercent = ($used / $total) * 100;
-
-        $this->stats['disk'] = [
+        
+        return [
             'free' => $free,
             'total' => $total,
             'used' => $used,
-            'usage_percent' => $usagePercent
+            'used_percent' => ($used / $total) * 100
         ];
+    }
 
-        if ($usagePercent > $this->thresholds['disk_usage']) {
-            $this->alerts[] = "High disk usage: {$usagePercent}%";
+    private function getTempDirMetrics() {
+        $fileCount = 0;
+        $totalSize = 0;
+
+        foreach (new DirectoryIterator($this->tempDir) as $file) {
+            if ($file->isDot() || !$file->isFile()) continue;
+            $fileCount++;
+            $totalSize += $file->getSize();
+        }
+
+        return [
+            'file_count' => $fileCount,
+            'total_size' => $totalSize,
+            'is_writable' => is_writable($this->tempDir)
+        ];
+    }
+
+    private function checkThresholds($metrics) {
+        $alerts = [];
+
+        if ($metrics['disk']['used_percent'] > $this->thresholds['disk_usage']) {
+            $alerts[] = "High disk usage: {$metrics['disk']['used_percent']}%";
+        }
+
+        if ($metrics['system']['load']['5m'] > $this->thresholds['load_average']) {
+            $alerts[] = "High system load: {$metrics['system']['load']['5m']}";
+        }
+
+        if ($metrics['temp_directory']['file_count'] > $this->thresholds['temp_files']) {
+            $alerts[] = "Too many temp files: {$metrics['temp_directory']['file_count']}";
+        }
+
+        if (!empty($alerts)) {
+            $this->writeAlerts($alerts);
         }
     }
 
-    private function checkFileCount() {
-        $files = glob($this->tempDir . '/*');
-        $count = count($files);
-
-        $this->stats['files'] = [
-            'count' => $count,
-            'threshold' => $this->thresholds['file_count']
-        ];
-
-        if ($count > $this->thresholds['file_count']) {
-            $this->alerts[] = "Too many files: {$count}";
-        }
+    private function writeMetrics($metrics) {
+        file_put_contents(
+            $this->metricsFile,
+            json_encode($metrics, JSON_PRETTY_PRINT)
+        );
     }
 
-    private function checkLoadAverage() {
-        $load = sys_getloadavg();
-        
-        $this->stats['load'] = [
-            '1min' => $load[0],
-            '5min' => $load[1],
-            '15min' => $load[2]
-        ];
-
-        if ($load[0] > $this->thresholds['load_average']) {
-            $this->alerts[] = "High system load: {$load[0]}";
-        }
+    private function writeAlerts($alerts) {
+        $logEntry = date('Y-m-d H:i:s') . " - " . implode('; ', $alerts) . PHP_EOL;
+        file_put_contents($this->alertFile, $logEntry, FILE_APPEND);
     }
 
-    private function checkMemoryUsage() {
-        $memInfo = [];
-        if (file_exists('/proc/meminfo')) {
-            $data = explode("\n", file_get_contents('/proc/meminfo'));
-            foreach ($data as $line) {
-                if (preg_match('/^(\w+):\s+(\d+)\s/', $line, $matches)) {
-                    $memInfo[$matches[1]] = $matches[2];
-                }
+    private function rotateFiles() {
+        $maxSize = 10485760; // 10MB
+
+        foreach ([$this->logFile, $this->alertFile] as $file) {
+            if (file_exists($file) && filesize($file) > $maxSize) {
+                rename($file, $file . '.old');
             }
         }
-
-        $total = isset($memInfo['MemTotal']) ? $memInfo['MemTotal'] : 0;
-        $free = isset($memInfo['MemAvailable']) ? $memInfo['MemAvailable'] : 0;
-        $used = $total - $free;
-        $usagePercent = $total > 0 ? ($used / $total) * 100 : 0;
-
-        $this->stats['memory'] = [
-            'total' => $total,
-            'free' => $free,
-            'used' => $used,
-            'usage_percent' => $usagePercent
-        ];
-
-        if ($usagePercent > $this->thresholds['memory_usage']) {
-            $this->alerts[] = "High memory usage: {$usagePercent}%";
-        }
     }
 
-    private function checkPermissions() {
-        $this->stats['permissions'] = [
-            'exists' => file_exists($this->tempDir),
-            'writable' => is_writable($this->tempDir),
-            'owner' => posix_getpwuid(fileowner($this->tempDir))['name'],
-            'group' => posix_getgrgid(filegroup($this->tempDir))['name'],
-            'mode' => substr(sprintf('%o', fileperms($this->tempDir)), -4)
-        ];
-
-        if (!$this->stats['permissions']['writable']) {
-            $this->alerts[] = "Directory not writable: {$this->tempDir}";
+    private function getUptime() {
+        if (file_exists('/proc/uptime')) {
+            $uptime = file_get_contents('/proc/uptime');
+            return (float)explode(' ', $uptime)[0];
         }
+        return 0;
     }
 
-    private function logStatus() {
-        $logFile = $this->tempDir . '/monitor.log';
-        $logEntry = date('Y-m-d H:i:s') . ' - ' . 
-                    json_encode(['stats' => $this->stats, 'alerts' => $this->alerts]) . 
-                    PHP_EOL;
-        file_put_contents($logFile, $logEntry, FILE_APPEND);
+    private function getMemoryInfo() {
+        if (file_exists('/proc/meminfo')) {
+            $meminfo = [];
+            foreach (file('/proc/meminfo') as $line) {
+                list($key, $val) = explode(':', $line);
+                $meminfo[$key] = (int)filter_var($val, FILTER_SANITIZE_NUMBER_INT);
+            }
+            return $meminfo;
+        }
+        return [];
+    }
+
+    private function logError($message) {
+        error_log("[SpeedTest Monitor] " . $message);
     }
 }
 
-// Run monitoring
-$monitor = new SystemMonitor('/tmp/speed_test');
-echo json_encode($monitor->monitor(), JSON_PRETTY_PRINT);
+// Run monitor if called directly
+if (php_sapi_name() === 'cli') {
+    $monitor = new SystemMonitor();
+    $result = $monitor->monitor();
+    echo json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL;
+}
