@@ -1,12 +1,10 @@
 class SpeedTest {
     constructor() {
-        // Base settings
         this.INITIAL_CHUNK_SIZE = 256 * 1024;  // 256KB for initial speed detection
         this.TEST_DURATION = 8000;             // 8 seconds per test
         this.WARMUP_SIZE = 128 * 1024;         // 128KB warmup
         this.MIN_SAMPLES = 8;                  // Minimum samples needed
-        this.TEST_RETRIES = 2;                 // Number of retries if test fails
-
+        
         // UI elements
         this.status = document.querySelector('.status');
         this.progress = document.querySelector('.progress');
@@ -19,15 +17,15 @@ class SpeedTest {
 
     getAdaptiveChunkSize(measuredSpeedMbps) {
         if (measuredSpeedMbps < 10) {          // Less than 10 Mbps
-            return 512 * 1024;                  // 512KB chunks
+            return 256 * 1024;                  // 256KB chunks
         } else if (measuredSpeedMbps < 50) {   // Less than 50 Mbps
-            return 1 * 1024 * 1024;            // 1MB chunks
+            return 512 * 1024;                  // 512KB chunks
         } else if (measuredSpeedMbps < 100) {  // Less than 100 Mbps
-            return 2 * 1024 * 1024;            // 2MB chunks
+            return 1 * 1024 * 1024;            // 1MB chunks
         } else if (measuredSpeedMbps < 500) {  // Less than 500 Mbps
-            return 4 * 1024 * 1024;            // 4MB chunks
+            return 2 * 1024 * 1024;            // 2MB chunks
         } else {                               // 500+ Mbps
-            return 8 * 1024 * 1024;            // 8MB chunks
+            return 4 * 1024 * 1024;            // 4MB chunks
         }
     }
 
@@ -69,17 +67,20 @@ class SpeedTest {
             }
         }
         measurements.sort((a, b) => a - b);
-        // Remove highest and lowest values
-        measurements.shift();
-        measurements.pop();
+        measurements.shift(); // Remove highest
+        measurements.pop();   // Remove lowest
         return measurements.reduce((a, b) => a + b, 0) / measurements.length;
     }
 
     calculateSpeed(bytes, duration) {
+        // Convert bytes to bits
         const bits = bytes * 8;
-        const megabits = bits / (1024 * 1024);
+        // Convert to megabits (1 megabit = 1,000,000 bits)
+        const megabits = bits / 1000000;
+        // Convert duration to seconds
         const seconds = duration / 1000;
-        return megabits / seconds;
+        // Calculate Mbps
+        return (megabits / seconds);
     }
 
     downloadChunk(size) {
@@ -112,29 +113,35 @@ class SpeedTest {
             
             xhr.onload = () => {
                 if (xhr.status === 200) {
-                    const endTime = performance.now();
-                    const duration = endTime - startTime;
-                    
                     if (speedSamples.length >= this.MIN_SAMPLES) {
-                        // Remove statistical outliers
+                        // Remove extreme outliers
                         speedSamples.sort((a, b) => a - b);
-                        const q1 = speedSamples[Math.floor(speedSamples.length * 0.25)];
-                        const q3 = speedSamples[Math.floor(speedSamples.length * 0.75)];
-                        const iqr = q3 - q1;
-                        const validSamples = speedSamples.filter(
-                            speed => speed >= (q1 - 1.5 * iqr) && speed <= (q3 + 1.5 * iqr)
-                        );
+                        const median = speedSamples[Math.floor(speedSamples.length / 2)];
                         
-                        const avgSpeed = validSamples.length > 0 
-                            ? validSamples.reduce((a, b) => a + b) / validSamples.length
-                            : this.calculateSpeed(totalBytes, duration);
-                        
-                        resolve({
-                            success: true,
-                            speed: avgSpeed,
-                            samples: validSamples.length
+                        // Filter out samples that deviate too much from median
+                        const validSamples = speedSamples.filter(speed => {
+                            const deviation = Math.abs(speed - median) / median;
+                            return deviation <= 0.5; // Allow 50% deviation from median
                         });
+                        
+                        if (validSamples.length > 0) {
+                            const avgSpeed = validSamples.reduce((a, b) => a + b) / validSamples.length;
+                            resolve({
+                                success: true,
+                                speed: avgSpeed,
+                                samples: validSamples.length
+                            });
+                        } else {
+                            // Fallback to median if no valid samples
+                            resolve({
+                                success: true,
+                                speed: median,
+                                samples: 1
+                            });
+                        }
                     } else {
+                        // Fallback calculation if not enough samples
+                        const duration = (performance.now() - startTime);
                         const speed = this.calculateSpeed(totalBytes, duration);
                         resolve({
                             success: true,
@@ -185,24 +192,30 @@ class SpeedTest {
                 if (xhr.status === 200) {
                     if (speedSamples.length >= this.MIN_SAMPLES) {
                         speedSamples.sort((a, b) => a - b);
-                        const q1 = speedSamples[Math.floor(speedSamples.length * 0.25)];
-                        const q3 = speedSamples[Math.floor(speedSamples.length * 0.75)];
-                        const iqr = q3 - q1;
-                        const validSamples = speedSamples.filter(
-                            speed => speed >= (q1 - 1.5 * iqr) && speed <= (q3 + 1.5 * iqr)
-                        );
+                        const median = speedSamples[Math.floor(speedSamples.length / 2)];
                         
-                        const avgSpeed = validSamples.length > 0 
-                            ? validSamples.reduce((a, b) => a + b) / validSamples.length
-                            : this.calculateSpeed(size, performance.now() - startTime);
-
-                        resolve({
-                            success: true,
-                            speed: avgSpeed,
-                            samples: validSamples.length
+                        const validSamples = speedSamples.filter(speed => {
+                            const deviation = Math.abs(speed - median) / median;
+                            return deviation <= 0.5;
                         });
+                        
+                        if (validSamples.length > 0) {
+                            const avgSpeed = validSamples.reduce((a, b) => a + b) / validSamples.length;
+                            resolve({
+                                success: true,
+                                speed: avgSpeed,
+                                samples: validSamples.length
+                            });
+                        } else {
+                            resolve({
+                                success: true,
+                                speed: median,
+                                samples: 1
+                            });
+                        }
                     } else {
-                        const speed = this.calculateSpeed(size, performance.now() - startTime);
+                        const duration = (performance.now() - startTime);
+                        const speed = this.calculateSpeed(size, duration);
                         resolve({
                             success: true,
                             speed: speed,
@@ -267,7 +280,6 @@ class SpeedTest {
 
             const finishTest = () => {
                 if (speeds.length > 0) {
-                    // Use median speed
                     speeds.sort((a, b) => a - b);
                     const medianSpeed = speeds[Math.floor(speeds.length / 2)];
                     resolve({

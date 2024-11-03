@@ -28,14 +28,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
         
         // Validate and sanitize size parameter
         $requestedSize = isset($_GET['size']) ? intval($_GET['size']) : 1048576;
-        $maxChunkSize = 10 * 1024 * 1024; // 10MB maximum
-        $size = min(max($requestedSize, 256 * 1024), $maxChunkSize); // Between 256KB and 10MB
+        $maxChunkSize = 8 * 1024 * 1024; // 8MB maximum
+        $size = min(max($requestedSize, 256 * 1024), $maxChunkSize); // Between 256KB and 8MB
         
         // Determine optimal chunk size based on requested size
         $chunkSize = min(65536, max(8192, intval($size / 100))); // Between 8KB and 64KB
         $totalSent = 0;
         
-        // Disable output buffering and compression
+        // Disable output buffering
         while (ob_get_level()) {
             ob_end_clean();
         }
@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 
                 $totalSent += $written;
                 
-                // Adaptive flushing based on chunk size
+                // Flush every few chunks
                 if ($totalSent % ($chunkSize * 8) === 0) {
                     flush();
                 }
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 $input = fopen('php://input', 'rb');
                 $temp = fopen('php://temp', 'w+b');
                 $size = 0;
-                $chunkSize = 8192; // 8KB chunks for processing uploads
+                $chunkSize = 65536; // 64KB chunks for processing uploads
                 
                 while (!feof($input)) {
                     $chunk = fread($input, $chunkSize);
@@ -95,6 +95,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                     }
                     
                     $size += $written;
+                    
+                    // Flush output buffer periodically
+                    if ($size % (1024 * 1024) === 0) {
+                        flush();
+                    }
                 }
                 
                 fclose($input);
@@ -113,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
             http_response_code(500);
             echo json_encode([
                 'success' => false,
-                'error' => 'Upload failed'
+                'error' => 'Upload failed: ' . $e->getMessage()
             ]);
         }
         exit;
