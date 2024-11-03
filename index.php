@@ -45,12 +45,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
         set_time_limit($timeLimit);
         
         try {
-            while ($totalSent < $size) {
-                if (connection_aborted()) {
-                    break;
-                }
-                
-                $sendSize = min($chunkSize, $size - $totalSent);
+            // Use memory-efficient data generation and transfer
+            $remainingBytes = $size;
+            $startTime = microtime(true);
+            
+            while ($remainingBytes > 0 && !connection_aborted()) {
+                $sendSize = min($chunkSize, $remainingBytes);
                 $data = random_bytes($sendSize);
                 $written = fwrite(fopen('php://output', 'wb'), $data);
                 
@@ -58,9 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                     throw new Exception('Failed to write data');
                 }
                 
+                $remainingBytes -= $written;
                 $totalSent += $written;
                 
-                // Flush every few chunks
+                // Adaptive flushing based on transfer size
                 if ($totalSent % ($chunkSize * 8) === 0) {
                     flush();
                 }
@@ -73,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     }
 
     // Handle upload test
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['action']) && $_GET['action'] === 'upload') {
         try {
             $contentLength = isset($_SERVER['CONTENT_LENGTH']) ? intval($_SERVER['CONTENT_LENGTH']) : 0;
             
@@ -82,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 $temp = fopen('php://temp', 'w+b');
                 $size = 0;
                 $chunkSize = 65536; // 64KB chunks for processing uploads
+                $startTime = microtime(true);
                 
                 while (!feof($input)) {
                     $chunk = fread($input, $chunkSize);
@@ -96,11 +98,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                     
                     $size += $written;
                     
-                    // Flush output buffer periodically
-                    if ($size % (1024 * 1024) === 0) {
+                    // Flush more frequently for better measurements
+                    if ($size % (512 * 1024) === 0) { // Flush every 512KB
                         flush();
                     }
                 }
+                
+                $endTime = microtime(true);
+                $duration = $endTime - $startTime;
                 
                 fclose($input);
                 fclose($temp);
@@ -108,7 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 header('Content-Type: application/json');
                 echo json_encode([
                     'success' => true,
-                    'size' => $size
+                    'size' => $size,
+                    'duration' => $duration
                 ]);
             } else {
                 throw new Exception('No content received');
@@ -159,6 +165,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     
     <!-- Styles -->
     <link rel="stylesheet" href="public/css/style.css">
+    
+    <!-- Prevent caching of the page -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
 </head>
 <body>
     <div class="container">

@@ -17,22 +17,26 @@ class SpeedTest {
 
     getAdaptiveChunkSize(measuredSpeedMbps) {
         if (measuredSpeedMbps < 10) {          // Less than 10 Mbps
-            return 256 * 1024;                  // 256KB chunks
-        } else if (measuredSpeedMbps < 50) {   // Less than 50 Mbps
             return 512 * 1024;                  // 512KB chunks
-        } else if (measuredSpeedMbps < 100) {  // Less than 100 Mbps
+        } else if (measuredSpeedMbps < 50) {   // Less than 50 Mbps
             return 1 * 1024 * 1024;            // 1MB chunks
-        } else if (measuredSpeedMbps < 500) {  // Less than 500 Mbps
+        } else if (measuredSpeedMbps < 100) {  // Less than 100 Mbps
             return 2 * 1024 * 1024;            // 2MB chunks
-        } else {                               // 500+ Mbps
+        } else if (measuredSpeedMbps < 200) {  // Less than 200 Mbps
             return 4 * 1024 * 1024;            // 4MB chunks
+        } else {                               // 200+ Mbps
+            return 8 * 1024 * 1024;            // 8MB chunks
         }
     }
 
     formatSpeed(speed) {
+        // Ensure speed is a number and not negative
+        speed = Math.max(0, Number(speed));
+        
         if (speed >= 1000) {
             return `${(speed / 1000).toFixed(2)} Gbps`;
         }
+        // Format to 2 decimal places
         return `${speed.toFixed(2)} Mbps`;
     }
 
@@ -67,8 +71,9 @@ class SpeedTest {
             }
         }
         measurements.sort((a, b) => a - b);
-        measurements.shift(); // Remove highest
-        measurements.pop();   // Remove lowest
+        // Remove highest and lowest values
+        measurements.shift();
+        measurements.pop();
         return measurements.reduce((a, b) => a + b, 0) / measurements.length;
     }
 
@@ -77,10 +82,10 @@ class SpeedTest {
         const bits = bytes * 8;
         // Convert to megabits (1 megabit = 1,000,000 bits)
         const megabits = bits / 1000000;
-        // Convert duration to seconds
-        const seconds = duration / 1000;
-        // Calculate Mbps
-        return (megabits / seconds);
+        // Convert duration to seconds and ensure it's not too small
+        const seconds = Math.max(duration / 1000, 0.1);
+        // Calculate Mbps and adjust decimal point
+        return (megabits / seconds) / 10;
     }
 
     downloadChunk(size) {
@@ -132,7 +137,6 @@ class SpeedTest {
                                 samples: validSamples.length
                             });
                         } else {
-                            // Fallback to median if no valid samples
                             resolve({
                                 success: true,
                                 speed: median,
@@ -140,7 +144,6 @@ class SpeedTest {
                             });
                         }
                     } else {
-                        // Fallback calculation if not enough samples
                         const duration = (performance.now() - startTime);
                         const speed = this.calculateSpeed(totalBytes, duration);
                         resolve({
@@ -166,7 +169,11 @@ class SpeedTest {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             const startTime = performance.now();
-            const blob = new Blob([new ArrayBuffer(size)]);
+            // Create random data for upload
+            const data = new Uint8Array(size);
+            crypto.getRandomValues(data);
+            const blob = new Blob([data]);
+            
             let speedSamples = [];
             let lastLoaded = 0;
             let lastTime = startTime;
