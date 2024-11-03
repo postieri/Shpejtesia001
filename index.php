@@ -1,4 +1,11 @@
 <?php
+// Security headers
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: no-referrer');
+header('Permissions-Policy: interest-cohort=()');
+
 // Environment configuration
 ini_set('memory_limit', getenv('PHP_MEMORY_LIMIT') ?: '256M');
 ini_set('upload_max_filesize', getenv('MAX_UPLOAD_SIZE') ?: '100M');
@@ -28,15 +35,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
         
         // Validate and sanitize size parameter
         $requestedSize = isset($_GET['size']) ? intval($_GET['size']) : 1048576;
-        $maxChunkSize = 8 * 1024 * 1024; // 8MB maximum
-        $size = min(max($requestedSize, 256 * 1024), $maxChunkSize); // Between 256KB and 8MB
+        $maxChunkSize = 4 * 1024 * 1024; // 4MB maximum
+        $size = min(max($requestedSize, 128 * 1024), $maxChunkSize); // Between 128KB and 4MB
         
         // Determine optimal chunk size based on requested size
         $chunkSize = min(65536, max(8192, intval($size / 100))); // Between 8KB and 64KB
         $totalSent = 0;
         
         // Disable output buffering
-        while (ob_get_level()) {
+        if (ob_get_level()) {
             ob_end_clean();
         }
         
@@ -47,12 +54,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
         try {
             // Use memory-efficient data generation and transfer
             $remainingBytes = $size;
-            $startTime = microtime(true);
+            $buffer = str_repeat('0', $chunkSize);
             
             while ($remainingBytes > 0 && !connection_aborted()) {
                 $sendSize = min($chunkSize, $remainingBytes);
-                $data = random_bytes($sendSize);
-                $written = fwrite(fopen('php://output', 'wb'), $data);
+                $written = fwrite(fopen('php://output', 'wb'), substr($buffer, 0, $sendSize));
                 
                 if ($written === false || $written !== $sendSize) {
                     throw new Exception('Failed to write data');
@@ -61,8 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                 $remainingBytes -= $written;
                 $totalSent += $written;
                 
-                // Adaptive flushing based on transfer size
-                if ($totalSent % ($chunkSize * 8) === 0) {
+                // Flush every 256KB
+                if ($totalSent % (256 * 1024) === 0) {
                     flush();
                 }
             }
@@ -89,8 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
                     if ($chunk === false) break;
                     $size += strlen($chunk);
                     
-                    // Flush more frequently for better measurements
-                    if ($size % (256 * 1024) === 0) { // Flush every 256KB
+                    // Flush every 256KB
+                    if ($size % (256 * 1024) === 0) {
                         flush();
                     }
                 }
@@ -146,7 +152,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     <!-- Security headers -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
     
     <!-- Preload key resources -->

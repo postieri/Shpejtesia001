@@ -1,8 +1,8 @@
 class SpeedTest {
     constructor() {
-        this.INITIAL_CHUNK_SIZE = 256 * 1024;  // 256KB for initial speed detection
+        this.INITIAL_CHUNK_SIZE = 128 * 1024;  // 128KB for initial speed detection
         this.TEST_DURATION = 8000;             // 8 seconds per test
-        this.WARMUP_SIZE = 128 * 1024;         // 128KB warmup
+        this.WARMUP_SIZE = 64 * 1024;          // 64KB warmup
         this.MIN_SAMPLES = 8;                  // Minimum samples needed
         
         // UI elements
@@ -17,15 +17,15 @@ class SpeedTest {
 
     getAdaptiveChunkSize(measuredSpeedMbps) {
         if (measuredSpeedMbps < 5) {           // Less than 5 Mbps
-            return 256 * 1024;                  // 256KB chunks
+            return 128 * 1024;                  // 128KB chunks
         } else if (measuredSpeedMbps < 20) {    // Less than 20 Mbps
-            return 512 * 1024;                  // 512KB chunks
+            return 256 * 1024;                  // 256KB chunks
         } else if (measuredSpeedMbps < 50) {    // Less than 50 Mbps
-            return 1 * 1024 * 1024;            // 1MB chunks
+            return 512 * 1024;                  // 512KB chunks
         } else if (measuredSpeedMbps < 100) {   // Less than 100 Mbps
-            return 2 * 1024 * 1024;            // 2MB chunks
+            return 1 * 1024 * 1024;            // 1MB chunks
         } else {                               // 100+ Mbps
-            return 4 * 1024 * 1024;            // 4MB chunks
+            return 2 * 1024 * 1024;            // 2MB chunks
         }
     }
 
@@ -104,7 +104,7 @@ class SpeedTest {
                 const timeDiff = (currentTime - lastProgressTime) / 1000;
                 const byteDiff = event.loaded - totalBytes;
                 
-                if (timeDiff > 0.1 && byteDiff > 0) { // Sample every 100ms
+                if (timeDiff > 0.1 && byteDiff > 0) {
                     const speed = this.calculateSpeed(byteDiff, timeDiff * 1000);
                     if (speed > 0) {
                         speedSamples.push(speed);
@@ -119,14 +119,12 @@ class SpeedTest {
             xhr.onload = () => {
                 if (xhr.status === 200) {
                     if (speedSamples.length >= this.MIN_SAMPLES) {
-                        // Remove extreme outliers
                         speedSamples.sort((a, b) => a - b);
                         const median = speedSamples[Math.floor(speedSamples.length / 2)];
                         
-                        // Filter out samples that deviate too much from median
                         const validSamples = speedSamples.filter(speed => {
                             const deviation = Math.abs(speed - median) / median;
-                            return deviation <= 0.5; // Allow 50% deviation from median
+                            return deviation <= 0.5;
                         });
                         
                         if (validSamples.length > 0) {
@@ -169,10 +167,14 @@ class SpeedTest {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             const startTime = performance.now();
-            // Create random data for upload
+            
+            // Create random data in smaller chunks to avoid crypto.getRandomValues() limitation
             const data = new Uint8Array(size);
-            for (let i = 0; i < size; i++) {
-                data[i] = Math.random() * 256;
+            const chunkSize = 65536; // Max size for getRandomValues
+            for (let i = 0; i < size; i += chunkSize) {
+                const chunk = new Uint8Array(Math.min(chunkSize, size - i));
+                crypto.getRandomValues(chunk);
+                data.set(chunk, i);
             }
             const blob = new Blob([data]);
             
@@ -185,7 +187,7 @@ class SpeedTest {
                 const timeDiff = (currentTime - lastTime) / 1000;
                 const byteDiff = event.loaded - lastLoaded;
 
-                if (timeDiff > 0.1 && byteDiff > 0) { // Sample every 100ms
+                if (timeDiff > 0.1 && byteDiff > 0) {
                     const speed = this.calculateSpeed(byteDiff, timeDiff * 1000);
                     if (speed > 0) {
                         speedSamples.push(speed);
@@ -253,7 +255,7 @@ class SpeedTest {
             return result.speed;
         } catch (error) {
             console.error('Initial speed test error:', error);
-            return 10; // Default to 10 Mbps on error
+            return 5; // Default to 5 Mbps on error
         }
     }
 
