@@ -4,6 +4,8 @@ ini_set('memory_limit', getenv('PHP_MEMORY_LIMIT') ?: '256M');
 ini_set('upload_max_filesize', getenv('MAX_UPLOAD_SIZE') ?: '100M');
 ini_set('post_max_size', getenv('MAX_UPLOAD_SIZE') ?: '100M');
 ini_set('max_execution_time', '300');
+ini_set('zlib.output_compression', 'Off');
+ini_set('output_buffering', 'Off');
 
 // Handle API requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
@@ -13,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Cache-Control: post-check=0, pre-check=0', false);
     header('Pragma: no-cache');
+    header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
 
     if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
         exit(0);
@@ -21,63 +24,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     // Handle download test
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'download') {
         header('Content-Type: application/octet-stream');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Content-Transfer-Encoding: binary');
         
-        // Limit chunk size and apply rate limiting
-        $requestedSize = isset($_GET['size']) ? intval($_GET['size']) : 1048576; // default 1MB
-        $maxChunkSize = 5 * 1024 * 1024; // 5MB maximum
-        $size = min($requestedSize, $maxChunkSize);
+        // Validate and sanitize size parameter
+        $requestedSize = isset($_GET['size']) ? intval($_GET['size']) : 1048576;
+        $maxChunkSize = 10 * 1024 * 1024; // 10MB maximum
+        $size = min(max($requestedSize, 256 * 1024), $maxChunkSize); // Between 256KB and 10MB
         
-        // Generate and send data in smaller chunks with controlled rate
-        $chunkSize = 65536; // 64KB chunks
+        // Determine optimal chunk size based on requested size
+        $chunkSize = min(65536, max(8192, intval($size / 100))); // Between 8KB and 64KB
         $totalSent = 0;
-        $rateLimit = 32768; // Bytes per iteration (32KB)
         
-        while ($totalSent < $size) {
-            if (connection_aborted()) {
-                break;
+        // Disable output buffering and compression
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        // Set time limit based on expected transfer time
+        $timeLimit = max(30, ceil($size / (1024 * 1024) * 5)); // 5 seconds per MB, minimum 30 seconds
+        set_time_limit($timeLimit);
+        
+        try {
+            while ($totalSent < $size) {
+                if (connection_aborted()) {
+                    break;
+                }
+                
+                $sendSize = min($chunkSize, $size - $totalSent);
+                $data = random_bytes($sendSize);
+                $written = fwrite(fopen('php://output', 'wb'), $data);
+                
+                if ($written === false || $written !== $sendSize) {
+                    throw new Exception('Failed to write data');
+                }
+                
+                $totalSent += $written;
+                
+                // Adaptive flushing based on chunk size
+                if ($totalSent % ($chunkSize * 8) === 0) {
+                    flush();
+                }
             }
-
-            $sendSize = min($chunkSize, $size - $totalSent);
-            $data = random_bytes($sendSize);
-            
-            // Send chunk
-            echo $data;
-            $totalSent += $sendSize;
-            
-            // Flush output
-            flush();
-            ob_flush();
-            
-            // Rate limiting delay
-            usleep(1000); // 1ms delay between chunks
+        } catch (Exception $e) {
+            error_log("Download test error: " . $e->getMessage());
+            http_response_code(500);
         }
         exit;
     }
 
     // Handle upload test
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $input = fopen('php://input', 'rb');
-        $temp = fopen('php://temp', 'w+b');
-        $size = 0;
-        
-        // Read in chunks to prevent memory issues
-        while (!feof($input)) {
-            $chunk = fread($input, 8192); // 8KB chunks
-            if ($chunk === false) break;
-            $written = fwrite($temp, $chunk);
-            if ($written === false) break;
-            $size += $written;
+        try {
+            $contentLength = isset($_SERVER['CONTENT_LENGTH']) ? intval($_SERVER['CONTENT_LENGTH']) : 0;
+            
+            if ($contentLength > 0) {
+                $input = fopen('php://input', 'rb');
+                $temp = fopen('php://temp', 'w+b');
+                $size = 0;
+                $chunkSize = 8192; // 8KB chunks for processing uploads
+                
+                while (!feof($input)) {
+                    $chunk = fread($input, $chunkSize);
+                    if ($chunk === false) {
+                        throw new Exception('Failed to read upload data');
+                    }
+                    
+                    $written = fwrite($temp, $chunk);
+                    if ($written === false) {
+                        throw new Exception('Failed to process upload data');
+                    }
+                    
+                    $size += $written;
+                }
+                
+                fclose($input);
+                fclose($temp);
+                
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'success' => true,
+                    'size' => $size
+                ]);
+            } else {
+                throw new Exception('No content received');
+            }
+        } catch (Exception $e) {
+            error_log("Upload test error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Upload failed'
+            ]);
         }
-        
-        fclose($input);
-        fclose($temp);
-        
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => true,
-            'size' => $size
-        ]);
         exit;
     }
 
@@ -106,12 +144,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     
     <!-- Security headers -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
+    
+    <!-- Preload key resources -->
+    <link rel="preload" href="public/js/speedtest.js" as="script">
+    <link rel="preload" href="public/css/style.css" as="style">
     
     <!-- Styles -->
     <link rel="stylesheet" href="public/css/style.css">
-
-    <!-- Preload key resources -->
-    <link rel="preload" href="public/js/speedtest.js" as="script">
 </head>
 <body>
     <div class="container">
@@ -122,13 +164,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
             <div class="progress"></div>
         </div>
         <div class="test-buttons">
-            <button onclick="startDownloadTest()">Test Download</button>
-            <button onclick="startUploadTest()">Test Upload</button>
+            <button onclick="startDownloadTest()" class="download-btn">Test Download</button>
+            <button onclick="startUploadTest()" class="upload-btn">Test Upload</button>
         </div>
         <div class="results">
-            <div>Download: <span id="downloadResult">Not tested</span></div>
-            <div>Upload: <span id="uploadResult">Not tested</span></div>
-            <div>Latency: <span id="latencyResult">Not tested</span></div>
+            <div class="result-item">
+                <span class="result-label">Download:</span>
+                <span id="downloadResult" class="result-value">Not tested</span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">Upload:</span>
+                <span id="uploadResult" class="result-value">Not tested</span>
+            </div>
+            <div class="result-item">
+                <span class="result-label">Latency:</span>
+                <span id="latencyResult" class="result-value">Not tested</span>
+            </div>
         </div>
     </div>
 

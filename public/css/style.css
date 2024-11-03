@@ -28,7 +28,7 @@ body {
     width: 100%;
     max-width: 500px;
     text-align: center;
-    transition: transform 0.2s ease;
+    transition: all 0.3s ease;
 }
 
 /* Typography */
@@ -49,6 +49,9 @@ h1 {
     transition: color 0.3s ease;
     line-height: 1.2;
     min-height: 4.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .unit {
@@ -70,9 +73,9 @@ h1 {
 /* Progress bar */
 .progress-bar {
     width: 100%;
-    height: 6px;
+    height: 8px;
     background: #e0e0e0;
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
     margin: 1.5rem 0;
     position: relative;
@@ -82,7 +85,7 @@ h1 {
     width: 0%;
     height: 100%;
     background: #2196F3;
-    border-radius: 3px;
+    border-radius: 4px;
     transition: width 0.3s ease-out;
     position: absolute;
     top: 0;
@@ -101,15 +104,13 @@ button {
     background: #2196F3;
     color: white;
     border: none;
-    padding: 1rem 2rem;
+    padding: 0.875rem 1.5rem;
     border-radius: 8px;
     cursor: pointer;
     font-size: 1rem;
     font-weight: 600;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     min-width: 140px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     position: relative;
     overflow: hidden;
 }
@@ -117,7 +118,7 @@ button {
 button:hover {
     background: #1976D2;
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
 }
 
 button:active {
@@ -135,41 +136,42 @@ button:disabled {
 
 /* Results section */
 .results {
-    margin-top: 1.5rem;
+    margin-top: 2rem;
     padding: 1.5rem;
     background: #f8f9fa;
     border-radius: 8px;
     text-align: left;
     border: 1px solid #e9ecef;
-    transition: all 0.3s ease;
 }
 
-.results div {
-    margin: 0.75rem 0;
+.result-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 1.1rem;
-    padding: 0.5rem 0;
+    padding: 0.75rem 0;
     border-bottom: 1px solid #e9ecef;
 }
 
-.results div:last-child {
+.result-item:last-child {
     border-bottom: none;
 }
 
-.results span {
+.result-label {
+    color: #666;
+    font-weight: 500;
+}
+
+.result-value {
     font-weight: 600;
     color: #2196F3;
-    transition: color 0.3s ease;
 }
 
-/* Loading states */
-.container.loading .speed-display {
-    opacity: 0.7;
+/* Testing states */
+.testing .speed-display {
+    color: #2196F3;
 }
 
-.container.loading .progress {
+.testing .progress {
     background-image: linear-gradient(
         45deg,
         rgba(255, 255, 255, 0.15) 25%,
@@ -191,20 +193,6 @@ button:disabled {
     to {
         background-position: 0 0;
     }
-}
-
-/* Error states */
-.container.error .speed-display {
-    color: #dc3545;
-}
-
-.container.error .progress {
-    background: #dc3545;
-}
-
-/* Success states */
-.container.success .speed-display {
-    color: #28a745;
 }
 
 /* Responsive design */
@@ -235,53 +223,47 @@ button:disabled {
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
     body {
-        background: #1a1a1a;
-        color: #f0f2f5;
+        background: #121212;
+        color: #fff;
     }
 
     .container {
-        background: #2d2d2d;
+        background: #1e1e1e;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
     }
 
     h1 {
-        color: #f0f2f5;
+        color: #fff;
     }
 
     .status {
-        color: #adb5bd;
-    }
-
-    .results {
-        background: #222;
-        border-color: #444;
-    }
-
-    .results div {
-        border-bottom-color: #444;
+        color: #aaa;
     }
 
     .unit {
-        color: #adb5bd;
+        color: #888;
+    }
+
+    .results {
+        background: #252525;
+        border-color: #333;
+    }
+
+    .result-item {
+        border-bottom-color: #333;
+    }
+
+    .result-label {
+        color: #aaa;
     }
 
     .progress-bar {
-        background: #444;
+        background: #333;
     }
 
     button:disabled {
-        background: #444;
-    }
-}
-
-/* High contrast mode */
-@media (forced-colors: active) {
-    .progress {
-        border: 1px solid ButtonText;
-    }
-
-    button {
-        border: 1px solid ButtonText;
+        background: #333;
+        color: #666;
     }
 }
 
@@ -291,17 +273,29 @@ button:disabled {
         box-shadow: none;
     }
 
-    .test-buttons {
+    .test-buttons, .progress-bar {
         display: none;
     }
 
-    .progress-bar {
-        display: none;
+    .results {
+        border: none;
+        padding: 0;
     }
 }
 
-/* Animation for speed changes */
-@keyframes speed-change {
+/* High contrast mode */
+@media (forced-colors: active) {
+    .progress-bar {
+        border: 1px solid currentColor;
+    }
+
+    button {
+        border: 1px solid currentColor;
+    }
+}
+
+/* Speed animation */
+@keyframes speed-update {
     0% {
         transform: scale(1);
     }
@@ -314,5 +308,5 @@ button:disabled {
 }
 
 .speed-display.updating {
-    animation: speed-change 0.3s ease;
+    animation: speed-update 0.3s ease;
 }
