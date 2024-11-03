@@ -18,41 +18,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
         exit(0);
     }
 
-    // Directory for temporary files
-    $tempDir = sys_get_temp_dir() . '/speed_test/';
-
-    // Create directory if it doesn't exist
-    if (!file_exists($tempDir)) {
-        mkdir($tempDir, 0750, true);
+    // Handle download test
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'download') {
+        header('Content-Type: application/octet-stream');
+        
+        $size = isset($_GET['size']) ? intval($_GET['size']) : 1048576; // default 1MB
+        $size = min($size, 25 * 1024 * 1024); // max 25MB per chunk
+        
+        // Generate random data efficiently
+        $chunkSize = 8192; // 8KB chunks
+        while ($size > 0) {
+            $bytes = min($size, $chunkSize);
+            echo random_bytes($bytes);
+            $size -= $bytes;
+            if (connection_aborted()) break;
+        }
+        exit;
     }
 
-    // Handle file upload
+    // Handle upload test
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $tempfile = $tempDir . uniqid('speed_test_') . '.tmp';
-        $success = file_put_contents($tempfile, file_get_contents('php://input'));
-        echo json_encode(['success' => $success !== false]);
-        @unlink($tempfile); // Clean up immediately after upload
+        $input = fopen('php://input', 'rb');
+        $temp = fopen('php://temp', 'w+b');
+        $size = stream_copy_to_stream($input, $temp);
+        fclose($input);
+        fclose($temp);
+        echo json_encode(['success' => true, 'size' => $size]);
         exit;
     }
 
     // Handle ping request
     if (isset($_GET['action']) && $_GET['action'] === 'ping') {
-        echo json_encode([
-            'time' => microtime(true),
-            'server_time' => time(),
-            'memory_usage' => memory_get_usage(true)
-        ]);
+        echo json_encode(['time' => microtime(true)]);
         exit;
     }
-
-    // Cleanup old files (older than 1 hour)
-    $files = glob($tempDir . '*');
-    foreach ($files as $file) {
-        if (filemtime($file) < time() - 3600) {
-            @unlink($file);
-        }
-    }
-    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -68,7 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['action'])) {
     <!-- Security headers -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     
     <!-- Styles -->
     <link rel="stylesheet" href="public/css/style.css">

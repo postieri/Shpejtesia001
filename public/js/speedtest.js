@@ -19,15 +19,6 @@ class SpeedTest {
         this.latencyResult = document.getElementById('latencyResult');
     }
 
-    generateChunk(size) {
-        const buffer = new ArrayBuffer(size);
-        const view = new Uint8Array(buffer);
-        for (let i = 0; i < view.length; i++) {
-            view[i] = Math.random() * 256;
-        }
-        return new Blob([buffer]);
-    }
-
     formatSpeed(speed, useBits = true) {
         const bits = useBits ? speed * 8 : speed;
         if (bits >= 1000) {
@@ -52,7 +43,7 @@ class SpeedTest {
                 await fetch('?action=ping', {
                     cache: 'no-store',
                     headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Cache-Control': 'no-cache',
                         'Pragma': 'no-cache'
                     }
                 });
@@ -63,23 +54,80 @@ class SpeedTest {
             }
         }
         measurements.sort((a, b) => a - b);
-        measurements.shift(); // Remove lowest
-        measurements.pop();   // Remove highest
+        measurements.shift();
+        measurements.pop();
         return measurements.reduce((a, b) => a + b, 0) / measurements.length;
     }
 
+    downloadChunk(size) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const startTime = performance.now();
+            
+            xhr.open('GET', `?action=download&size=${size}`, true);
+            xhr.responseType = 'arraybuffer';
+            
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const endTime = performance.now();
+                    const duration = (endTime - startTime) / 1000; // seconds
+                    const loaded = xhr.response.byteLength;
+                    resolve({ loaded, duration });
+                } else {
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            };
+            
+            xhr.onerror = () => reject(new Error('Network error'));
+            xhr.onabort = () => reject(new Error('Aborted'));
+            xhr.ontimeout = () => reject(new Error('Timeout'));
+            
+            xhr.send();
+        });
+    }
+
+    uploadChunk(size) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const startTime = performance.now();
+            const blob = new Blob([new ArrayBuffer(size)]);
+            
+            xhr.open('POST', window.location.href, true);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            xhr.setRequestHeader('Cache-Control', 'no-cache');
+            
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const endTime = performance.now();
+                    const duration = (endTime - startTime) / 1000;
+                    resolve({ loaded: size, duration });
+                } else {
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            };
+            
+            xhr.onerror = () => reject(new Error('Network error'));
+            xhr.onabort = () => reject(new Error('Aborted'));
+            xhr.ontimeout = () => reject(new Error('Timeout'));
+            
+            xhr.send(blob);
+        });
+    }
+
     async performTransfer(type, chunkSize) {
-        return new Promise(async (resolve) => {
+        return new Promise((resolve) => {
             const startTime = performance.now();
             let totalBytes = 0;
             let activeTransfers = 0;
             let completed = false;
+            let errors = 0;
+            const maxErrors = 3;
 
             const checkCompletion = () => {
                 if (completed) return;
                 const endTime = performance.now();
                 const duration = (endTime - startTime) / 1000;
-                if (duration >= this.TEST_DURATION / 1000) {
+                if (duration >= this.TEST_DURATION / 1000 || errors >= maxErrors) {
                     completed = true;
                     const speedMbps = (totalBytes / duration) / (1024 * 1024);
                     resolve(speedMbps);
@@ -87,26 +135,32 @@ class SpeedTest {
             };
 
             const startNewTransfer = async () => {
-                if (completed) return;
+                if (completed || activeTransfers >= this.CONCURRENT_REQUESTS) return;
                 activeTransfers++;
 
                 try {
-                    if (type === 'download') {
-                        await this.downloadChunk(chunkSize);
-                    } else {
-                        await this.uploadChunk(chunkSize);
+                    const result = await (type === 'download' ? 
+                        this.downloadChunk(chunkSize) : 
+                        this.uploadChunk(chunkSize));
+                    
+                    if (!completed) {
+                        totalBytes += result.loaded;
+                        const currentSpeed = (result.loaded / result.duration) / (1024 * 1024);
+                        this.updateUI(null, `Testing ${type} speed...`, currentSpeed);
                     }
-                    totalBytes += chunkSize;
                 } catch (error) {
                     console.error(`${type} error:`, error);
+                    errors++;
                 }
 
                 activeTransfers--;
+                if (!completed) {
+                    startNewTransfer();
+                }
                 checkCompletion();
-                if (!completed) startNewTransfer();
             };
 
-            // Start concurrent transfers
+            // Start initial transfers
             for (let i = 0; i < this.CONCURRENT_REQUESTS; i++) {
                 startNewTransfer();
             }
@@ -123,39 +177,13 @@ class SpeedTest {
         });
     }
 
-    async downloadChunk(size) {
-        const blob = this.generateChunk(size);
-        const url = URL.createObjectURL(blob);
-        try {
-            await fetch(url, {
-                cache: 'no-store',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache'
-                }
-            }).then(response => response.blob());
-        } finally {
-            URL.revokeObjectURL(url);
-        }
-    }
-
-    async uploadChunk(size) {
-        const blob = this.generateChunk(size);
-        await fetch(window.location.href, {
-            method: 'POST',
-            body: blob,
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
-    }
-
     async warmup() {
         this.updateUI(0, 'Warming up connection...');
         try {
-            await this.downloadChunk(this.WARMUP_SIZE);
-            await this.uploadChunk(this.WARMUP_SIZE);
+            await Promise.all([
+                this.downloadChunk(this.WARMUP_SIZE),
+                this.uploadChunk(this.WARMUP_SIZE)
+            ]);
         } catch (error) {
             console.error('Warmup error:', error);
         }
@@ -177,7 +205,6 @@ class SpeedTest {
                 if (speed > 0) {
                     totalSpeed += speed;
                     validTests++;
-                    this.updateUI(progress, `Testing ${type} speed...`, speed);
                 }
             }
 
